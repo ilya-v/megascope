@@ -114,6 +114,8 @@ volatile char * print_word(char volatile *s, uint16_t n)
 
 unsigned char process_adc(uint8_t *adc_data)
 {
+    static uint8_t adc_index = 0;
+
     const uint8_t 
         are_data_ready  = ADCSRA & _BV(ADIF),
         is_adc_busy     = ADCSRA & _BV(ADSC);
@@ -121,13 +123,19 @@ unsigned char process_adc(uint8_t *adc_data)
     if (!are_data_ready)
     {
         if (!is_adc_busy)
+        {
+            ADMUX = (ADMUX & 0xF0) | adc_index;
             ADCSRA |= _BV(ADSC);
+        }
         return  0;
     }
     
     ADCSRA |= _BV(ADIF);
-    adc_data[0] = adc_data[1] = adc_data[2] = adc_data[3] = adc_data[4] = ADCH;
-    return 1;   
+    adc_data[adc_index] = ADCH;
+    adc_index ++;
+    if (adc_index >= 5)
+        adc_index = 0;
+    return adc_index == 0;  
 }
 
 int main( void )
@@ -144,7 +152,7 @@ int main( void )
 
 
     ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0);
-    ADMUX = _BV(REFS0) | _BV(ADLAR) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+    ADMUX = _BV(REFS0) | _BV(ADLAR);
 
     uint8_t adc_data[5];
     for (;;)
