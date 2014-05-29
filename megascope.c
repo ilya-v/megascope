@@ -76,10 +76,7 @@ unsigned char proccess_uart()
         SET_TX_PIN();        
         stop_bits_to_send --;
         if (!stop_bits_to_send)
-        {
-            uart_state = IDLE;
-            PIND = (unsigned char)0b10000000;
-        }
+            uart_state = IDLE;        
     break; 
     } 
 
@@ -161,6 +158,7 @@ int main( void )
         volatile uint8_t is_adc_ready = process_adc(adc_data);
         if ( proccess_uart() && is_adc_ready)
         {
+            PIND = (unsigned char)0b10000000;
             char volatile *s = uart_string;
             const volatile uint16_t t = TCNT1;
             s = print_word(s, t);
