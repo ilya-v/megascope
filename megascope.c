@@ -2,12 +2,12 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
-#include <stdio.h>
+#include <avr/interrupt.h>
 
-#define N_UART_TICKS            103     //9600
+//#define N_UART_TICKS            103     //9600
 //#define N_UART_TICKS          51      //18200
-//#define N_UART_TICKS          25      //38400
-#define N_STOP_BITS             4
+#define N_UART_TICKS          25      //38400
+#define N_STOP_BITS             2
 
 
 //#define SET_TX_PIN( )    ( PORTD |= ( 1 << PD1 ) )
@@ -18,40 +18,34 @@
 
 typedef enum
 {
-    IDLE,                                       //!< Idle state, both transmit and receive possible.
-    TRANSMIT,                                   //!< Transmitting byte.
-    TRANSMIT_STOP_BIT,                          //!< Transmitting stop bit.
+    START_BIT, 
+    TRANSMIT,
+    STOP_BITS
 } uart_state_t;
 
-        char volatile   uart_string[256]    = "";
-const   char volatile * p_next_char         = uart_string;
-
-unsigned char get_char_to_send()
-{   
-    const unsigned char r = (unsigned char)*p_next_char;
-    if (r)
-        p_next_char ++;
-    return r;
-}
+        char    volatile    uart_string[256]    = "";
+const   char    volatile  * p_next_uart_char    = uart_string;
+        uint8_t volatile    is_uart_idle        = 1;
+        
 
 
-unsigned char proccess_uart()
+ISR(TIMER0_COMPA_vect)
 {
-    static unsigned char char_to_send = 0;
-    static unsigned char bits_to_send = 0;
-    static unsigned char stop_bits_to_send = 0;
-    static uart_state_t  uart_state = IDLE;
-
-    
-    if (TCNT0 < N_UART_TICKS)
-        return 0;
-    TCNT0  =  0;    
-     
+    static  uint8_t         char_to_send        = 0;
+    static  uint8_t         bits_to_send        = 0;
+    static  uint8_t         stop_bits_to_send   = 0;
+    static  uart_state_t    uart_state          = START_BIT;
+        
     switch (uart_state) {
-    case IDLE:
-        char_to_send = get_char_to_send();
+    case START_BIT:
+        char_to_send = (unsigned char)*p_next_uart_char;
         if (!char_to_send)
-            return 1;
+        {
+            is_uart_idle = 1;            
+            return;
+        }
+        is_uart_idle = 0;
+        p_next_uart_char ++;
         bits_to_send = 8;
         uart_state  = TRANSMIT;
         CLEAR_TX_PIN();
@@ -68,19 +62,17 @@ unsigned char proccess_uart()
         if (!bits_to_send)
         {
             stop_bits_to_send = N_STOP_BITS;
-            uart_state = TRANSMIT_STOP_BIT; 
+            uart_state = STOP_BITS; 
         } 
     break;
 
-    case TRANSMIT_STOP_BIT:
+    case STOP_BITS:
         SET_TX_PIN();        
         stop_bits_to_send --;
         if (!stop_bits_to_send)
-            uart_state = IDLE;        
+            uart_state = START_BIT;        
     break; 
     } 
-
-    return 0;
 }
 
 volatile char * print_byte(char volatile *s, uint8_t n)
@@ -137,11 +129,13 @@ unsigned char process_adc(uint8_t *adc_data)
 
 int main( void )
 {
-    DDRD = 0b11000010;
-    PORTD = 0;
+    DDRD    = 0b11000010;
+    PORTD   = 0;
     SET_TX_PIN();                    // Set the TX line to idle state.
-    TCCR0A = 0;
-    TCCR0B = _BV(CS01);           // Divide by 8 prescaler
+    TCCR0A  = _BV(WGM01);
+    TCCR0B  = _BV(CS01);           // Divide by 8 prescaler
+    OCR0A   = N_UART_TICKS;
+    TIMSK0 = _BV(OCIE0A);
 
     TCCR1A = 0;
     TCCR1B = _BV(CS12) | _BV(CS10);
@@ -151,23 +145,23 @@ int main( void )
     ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0);
     ADMUX = _BV(REFS0) | _BV(ADLAR);
 
+    sei();
+
     uint8_t adc_data[5];
     for (;;)
-    {       
-
-        volatile uint8_t is_adc_ready = process_adc(adc_data);
-        if ( proccess_uart() && is_adc_ready)
+    {  
+        const uint8_t is_adc_ready = process_adc(adc_data);
+        if ( is_uart_idle && is_adc_ready)
         {
             PIND = (unsigned char)0b10000000;
             char volatile *s = uart_string;
-            const volatile uint16_t t = TCNT1;
-            s = print_word(s, t);
+            s = print_word(s, (const volatile uint16_t)TCNT1);
             for (unsigned char i = 0; i < sizeof(adc_data); ++i)
                 s = print_byte(s, adc_data[i]);            
             s[0] = '\r';
             s[1] = '\n';
             s[2] = 0;
-            p_next_char = uart_string;     
+            p_next_uart_char = uart_string;     
         }    
     }
 }
