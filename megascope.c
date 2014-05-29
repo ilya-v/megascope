@@ -101,9 +101,10 @@ volatile char * print_word(char volatile *s, uint16_t n)
     return s + 6;
 }
 
+#define ADC_START_INDEX 1
 unsigned char process_adc(uint8_t *adc_data)
 {
-    static uint8_t adc_index = 0;
+    static uint8_t adc_index = ADC_START_INDEX;
 
     const uint8_t 
         are_data_ready  = ADCSRA & _BV(ADIF),
@@ -113,18 +114,18 @@ unsigned char process_adc(uint8_t *adc_data)
     {
         if (!is_adc_busy)
         {
-            ADMUX = (ADMUX & 0xF0) | adc_index;
+            ADMUX = _BV(REFS0) | _BV(ADLAR) | adc_index;
             ADCSRA |= _BV(ADSC);
         }
         return  0;
     }
     
     ADCSRA |= _BV(ADIF);
-    adc_data[adc_index] = ADCH;
+    adc_data[adc_index-ADC_START_INDEX] = ADCH;
     adc_index ++;
-    if (adc_index >= 5)
-        adc_index = 0;
-    return adc_index == 0;  
+    if (adc_index > 5)
+        adc_index = ADC_START_INDEX;
+    return adc_index == ADC_START_INDEX;  
 }
 
 int main( void )
@@ -140,6 +141,10 @@ int main( void )
     TCCR1A = 0;
     TCCR1B = _BV(CS12) | _BV(CS10);
     TCNT1 = 0;
+
+    DDRC = 0b00000001;
+    PORTC = 0;
+
 
 
     ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0);
